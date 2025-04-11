@@ -6,8 +6,7 @@ import (
 	"sync"     // 병렬 처리할 때 결과를 안전하게 저장하려고 mutex 사용
 	"time"     // 타이머 제어(Duration, Ticker 등)
 
-	"github.com/Mr-Muji/LoadTest/backend/config"
-	// generator 패키지 import 수정 - 같은 패키지이므로 직접 사용
+	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
 )
 
 func RunLoadTest(req config.TestRequest) (config.TestResult, error) {
