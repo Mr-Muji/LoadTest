@@ -5,3 +5,8 @@ npm install puppeteer
 
 # 실행
 node api-extractor.js https://example.com
+
+# 로깅툴
+zap 사용
+go get -u go.uber.org/zap
+

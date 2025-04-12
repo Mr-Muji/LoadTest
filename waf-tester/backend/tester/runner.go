@@ -11,9 +11,93 @@ import (
 	"time" // 타이머 제어(Duration, Ticker 등)
 
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
+	"go.uber.org/zap"         // zap 로깅 라이브러리
+	"go.uber.org/zap/zapcore" // zap 설정을 위한 패키지
 )
 
+// 전역 로거 변수 선언
+var logger *zap.SugaredLogger
+
+// InitLogger zap 로거를 초기화하는 함수
+func InitLogger(logPath string) {
+	// 로그 설정 구성
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalLevelEncoder, // 대문자로 로그 레벨 표시 (INFO, ERROR 등)
+		EncodeTime:     zapcore.ISO8601TimeEncoder,  // ISO8601 시간 포맷 사용
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	// 로그 파일 설정
+	var core zapcore.Core
+	if logPath != "" {
+		// 로그 디렉토리 생성
+		logDir := logPath[:strings.LastIndex(logPath, "/")]
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			fmt.Printf("로그 디렉토리 생성 실패: %v\n", err)
+		}
+
+		// 로그 파일 열기
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("로그 파일 열기 실패: %v, 콘솔에만 출력합니다.\n", err)
+			// 콘솔에만 출력하는 설정
+			core = zapcore.NewCore(
+				zapcore.NewConsoleEncoder(encoderConfig),
+				zapcore.AddSync(os.Stdout),
+				zap.InfoLevel, // 기본 로그 레벨 설정
+			)
+		} else {
+			// 파일과 콘솔 모두에 출력
+			fileWriter := zapcore.AddSync(logFile)
+			consoleWriter := zapcore.AddSync(os.Stdout)
+			multiWriter := zapcore.NewMultiWriteSyncer(fileWriter, consoleWriter)
+
+			core = zapcore.NewCore(
+				zapcore.NewConsoleEncoder(encoderConfig),
+				multiWriter,
+				zap.InfoLevel, // 기본 로그 레벨 설정
+			)
+		}
+	} else {
+		// 로그 파일 경로가 없으면 콘솔에만 출력
+		core = zapcore.NewCore(
+			zapcore.NewConsoleEncoder(encoderConfig),
+			zapcore.AddSync(os.Stdout),
+			zap.InfoLevel, // 기본 로그 레벨 설정
+		)
+	}
+
+	// 로거 생성
+	zapLogger := zap.New(core, zap.AddCaller())
+	logger = zapLogger.Sugar() // SugaredLogger는 사용하기 더 편리한 API 제공
+
+	logger.Info("로깅 시스템 초기화 완료")
+}
+
 func RunLoadTest(req config.TestRequest) (config.TestResult, error) {
+	// 로그 시스템이 초기화되지 않은 경우를 대비
+	if logger == nil {
+		// 기본 콘솔 로거 생성
+		zapLogger, _ := zap.NewProduction()
+		logger = zapLogger.Sugar()
+		defer zapLogger.Sync()
+	}
+
+	// 테스트 시작 로깅
+	logger.Infow("부하 테스트 시작",
+		"target", req.Target,
+		"rps", req.RPS,
+		"duration", req.Duration,
+	)
+
 	// 결과를 저장할 구조체 생성
 	result := config.TestResult{
 		StatusMap: make(map[int]int),
@@ -33,51 +117,78 @@ func RunLoadTest(req config.TestRequest) (config.TestResult, error) {
 
 	// WaitGroup : 모든 요청이 끝날 때까지 기다릴 수 있게 함.
 	var wg sync.WaitGroup
-loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 붙여 제어하는 기능
-	for { // 무한 반복문 시작
-		select { // select는 여러 채널 연산 중 준비된 것을 처리하는 Go의 특별 구문
-		case <-timeout: // timeout 채널에서 값을 받으면 (시간 초과 발생)
-			break loop // loop 레이블이 붙은 반복문을 종료합니다 (일반 break는 select만 빠져나감)
-		case <-ticker.C: // ticker의 채널 C에서 값을 받을 때마다 (일정 시간 간격)
-			wg.Add(1)   // WaitGroup 카운터 증가 (고루틴 추가)
-			go func() { // 새 고루틴(경량 스레드) 시작 - 병렬 처리를 위함
-				defer wg.Done() // 함수 종료 시 WaitGroup 카운터 감소
+
+	// 상태 업데이트를 위한 타이머 (10초마다)
+	statusTicker := time.NewTicker(10 * time.Second)
+	defer statusTicker.Stop()
+
+	// 상태 업데이트 고루틴
+	go func() {
+		for {
+			select {
+			case <-statusTicker.C:
+				mu.Lock()
+				logger.Infow("테스트 진행 상황",
+					"요청수", result.TotalRequests,
+					"성공", result.SuccessCount,
+					"실패", result.FailCount,
+				)
+				mu.Unlock()
+			case <-timeout:
+				return
+			}
+		}
+	}()
+
+loop:
+	for {
+		select {
+		case <-timeout:
+			logger.Infow("테스트 시간 종료", "duration", req.Duration)
+			break loop
+		case <-ticker.C:
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
 				//경로 + 헤더 랜덤 선택
 				selectedPath := GetRandomPath(req.PathList)
 				url := strings.TrimRight(req.Target, "/") + "/" + strings.TrimLeft(selectedPath, "/")
 
-				headers := GetRandomHeaderSet(req.Headers) // 헤더 랜덤 선택 수정
+				headers := GetRandomHeaderSet(req.Headers)
 
 				// 요청 본문 설정
-				var bodyReader io.Reader = nil // 변수명은 유지, 타입만 변경
+				var bodyReader io.Reader = nil
 				if strings.ToUpper(req.Method) == "POST" && req.Body != "" {
-					bodyReader = bytes.NewBuffer([]byte(req.Body)) // 기존 로직 유지
+					bodyReader = bytes.NewBuffer([]byte(req.Body))
 				}
 
-				httpReq, err := http.NewRequest(req.Method, url, bodyReader) // 변수명 유지
-				if err != nil {                                              // 요청 객체 생성 실패 시
-					fmt.Println("요청 생성 실패:", err) // 오류 출력
-					return                        // 고루틴 종료
+				httpReq, err := http.NewRequest(req.Method, url, bodyReader)
+				if err != nil {
+					logger.Errorw("요청 생성 실패",
+						"url", url,
+						"error", err,
+					)
+					return
 				}
 
 				//랜덤 헤더 적용
-				for k, vs := range headers { // 헤더 맵을 순회 (키와 값 배열)
-					for _, v := range vs { // 각 헤더 값 배열을 순회
-						httpReq.Header.Add(k, v) // 요청에 헤더 추가
+				for k, vs := range headers {
+					for _, v := range vs {
+						httpReq.Header.Add(k, v)
 					}
 				}
-				// resp 앞에 있어야 함
+
 				startTime := time.Now()
 
 				// 요청 보내기
-				timeoutDuration := 10 * time.Second // 기본값 10초
+				timeoutDuration := 10 * time.Second
 				if req.Timeout > 0 {
 					timeoutDuration = time.Duration(req.Timeout) * time.Second
 				}
 
 				client := &http.Client{
-					Timeout: timeoutDuration, // 개별 요청 타임아웃
+					Timeout: timeoutDuration,
 					Transport: &http.Transport{
 						MaxIdleConns:        100,
 						MaxIdleConnsPerHost: 100,
@@ -94,52 +205,89 @@ loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 �
 
 					// 타임아웃 오류 감지
 					if os.IsTimeout(err) || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline exceeded") {
-						result.TimeoutCount++          // 새로운 필드 필요
-						if result.StatusMap[-1] == 0 { // -1을 타임아웃 상태 코드로 사용
+						result.TimeoutCount++
+						if result.StatusMap[-1] == 0 {
 							result.StatusMap[-1] = 1
 						} else {
 							result.StatusMap[-1]++
 						}
+						logger.Warnw("요청 타임아웃",
+							"url", url,
+						)
+					} else {
+						logger.Errorw("요청 실패",
+							"url", url,
+							"error", err,
+						)
 					}
 					mu.Unlock()
 					return
 				}
-				defer resp.Body.Close() // 함수 종료 시 응답 본문 닫기 (리소스 정리)
+				defer resp.Body.Close()
 
 				latency := time.Since(startTime)
 				latencyMs := float64(latency.Milliseconds())
 
 				// 응답 코드 저장
-				mu.Lock()              // 뮤텍스 잠금 (동시 접근 방지)
-				result.TotalRequests++ // 총 요청 수 증가
+				mu.Lock()
+				result.TotalRequests++
 				totalLatencySum += latencyMs
+
 				// 응답 코드 처리
-				if resp.StatusCode == 200 { // 성공(200) 응답이면
-					result.SuccessCount++ // 성공 카운트 증가
-				} else { // 그 외 응답 코드는
-					result.FailCount++ // 실패 카운트 증가
+				if resp.StatusCode == 200 {
+					result.SuccessCount++
+					logger.Debugw("요청 성공",
+						"url", url,
+						"statusCode", resp.StatusCode,
+						"latencyMs", latencyMs,
+					)
+				} else {
+					result.FailCount++
+					logger.Warnw("요청 실패",
+						"url", url,
+						"statusCode", resp.StatusCode,
+						"latencyMs", latencyMs,
+					)
 				}
-				result.StatusMap[resp.StatusCode]++ // 응답 코드별 카운트 증가
+				result.StatusMap[resp.StatusCode]++
 
 				// latency 통계 누적
 				if latencyMs > result.MaxLatencyMs {
 					result.MaxLatencyMs = latencyMs
+					logger.Infow("새로운 최대 응답시간 기록",
+						"url", url,
+						"latencyMs", latencyMs,
+					)
 				}
 				if latencyMs > 500 {
 					result.SlowCountOver500++
+					logger.Warnw("느린 응답",
+						"url", url,
+						"latencyMs", latencyMs,
+					)
 				}
-				mu.Unlock() // 뮤텍스 잠금 해제
-			}() // 고루틴 함수 종료
+				mu.Unlock()
+			}()
 		}
 	}
 
-	//모든 goroutine이 끝날 때까지 기다림
-	wg.Wait() // 모든 고루틴이 작업을 마칠 때까지 대기
+	// 모든 goroutine이 끝날 때까지 기다림
+	logger.Info("모든 요청 완료 대기 중...")
+	wg.Wait()
 
 	// 평균 응답 시간 계산
 	if result.TotalRequests > 0 {
 		result.AvgLatencyMs = totalLatencySum / float64(result.TotalRequests)
 	}
 
-	return result, nil // 테스트 결과와 nil 에러 반환
+	// 테스트 결과 요약 로깅
+	logger.Infow("테스트 완료",
+		"총요청", result.TotalRequests,
+		"성공", result.SuccessCount,
+		"실패", result.FailCount,
+		"타임아웃", result.TimeoutCount,
+		"평균응답시간", fmt.Sprintf("%.2fms", result.AvgLatencyMs),
+	)
+
+	return result, nil
 }
