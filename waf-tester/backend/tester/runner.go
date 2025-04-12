@@ -10,13 +10,14 @@ import (
 	"sync" // 병렬 처리할 때 결과를 안전하게 저장하려고 mutex 사용
 	"time" // 타이머 제어(Duration, Ticker 등)
 
+	// 루트 디렉토리의 logger 패키지
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
 	"go.uber.org/zap"         // zap 로깅 라이브러리
 	"go.uber.org/zap/zapcore" // zap 설정을 위한 패키지
 )
 
 // 전역 로거 변수 선언
-var logger *zap.SugaredLogger
+var log *zap.SugaredLogger
 
 // InitLogger zap 로거를 초기화하는 함수
 func InitLogger(logPath string) {
@@ -52,7 +53,7 @@ func InitLogger(logPath string) {
 			core = zapcore.NewCore(
 				zapcore.NewConsoleEncoder(encoderConfig),
 				zapcore.AddSync(os.Stdout),
-				zap.InfoLevel, // 기본 로그 레벨 설정
+				zap.InfoLevel,
 			)
 		} else {
 			// 파일과 콘솔 모두에 출력
@@ -63,7 +64,7 @@ func InitLogger(logPath string) {
 			core = zapcore.NewCore(
 				zapcore.NewConsoleEncoder(encoderConfig),
 				multiWriter,
-				zap.InfoLevel, // 기본 로그 레벨 설정
+				zap.InfoLevel,
 			)
 		}
 	} else {
@@ -71,28 +72,28 @@ func InitLogger(logPath string) {
 		core = zapcore.NewCore(
 			zapcore.NewConsoleEncoder(encoderConfig),
 			zapcore.AddSync(os.Stdout),
-			zap.InfoLevel, // 기본 로그 레벨 설정
+			zap.InfoLevel,
 		)
 	}
 
 	// 로거 생성
 	zapLogger := zap.New(core, zap.AddCaller())
-	logger = zapLogger.Sugar() // SugaredLogger는 사용하기 더 편리한 API 제공
+	log = zapLogger.Sugar() // SugaredLogger는 사용하기 더 편리한 API 제공
 
-	logger.Info("로깅 시스템 초기화 완료")
+	log.Info("로깅 시스템 초기화 완료")
 }
 
 func RunLoadTest(req config.TestRequest) (config.TestResult, error) {
 	// 로그 시스템이 초기화되지 않은 경우를 대비
-	if logger == nil {
+	if log == nil {
 		// 기본 콘솔 로거 생성
 		zapLogger, _ := zap.NewProduction()
-		logger = zapLogger.Sugar()
+		log = zapLogger.Sugar()
 		defer zapLogger.Sync()
 	}
 
 	// 테스트 시작 로깅
-	logger.Infow("부하 테스트 시작",
+	log.Infow("부하 테스트 시작",
 		"target", req.Target,
 		"rps", req.RPS,
 		"duration", req.Duration,
@@ -128,7 +129,7 @@ func RunLoadTest(req config.TestRequest) (config.TestResult, error) {
 			select {
 			case <-statusTicker.C:
 				mu.Lock()
-				logger.Infow("테스트 진행 상황",
+				log.Infow("테스트 진행 상황",
 					"요청수", result.TotalRequests,
 					"성공", result.SuccessCount,
 					"실패", result.FailCount,
@@ -144,7 +145,7 @@ loop:
 	for {
 		select {
 		case <-timeout:
-			logger.Infow("테스트 시간 종료", "duration", req.Duration)
+			log.Infow("테스트 시간 종료", "duration", req.Duration)
 			break loop
 		case <-ticker.C:
 			wg.Add(1)
@@ -165,7 +166,7 @@ loop:
 
 				httpReq, err := http.NewRequest(req.Method, url, bodyReader)
 				if err != nil {
-					logger.Errorw("요청 생성 실패",
+					log.Errorw("요청 생성 실패",
 						"url", url,
 						"error", err,
 					)
@@ -211,11 +212,11 @@ loop:
 						} else {
 							result.StatusMap[-1]++
 						}
-						logger.Warnw("요청 타임아웃",
+						log.Warnw("요청 타임아웃",
 							"url", url,
 						)
 					} else {
-						logger.Errorw("요청 실패",
+						log.Errorw("요청 실패",
 							"url", url,
 							"error", err,
 						)
@@ -236,43 +237,51 @@ loop:
 				// 응답 코드 처리
 				if resp.StatusCode == 200 {
 					result.SuccessCount++
-					logger.Debugw("요청 성공",
+					log.Debugw("요청 성공",
 						"url", url,
 						"statusCode", resp.StatusCode,
 						"latencyMs", latencyMs,
 					)
 				} else {
 					result.FailCount++
-					logger.Warnw("요청 실패",
-						"url", url,
-						"statusCode", resp.StatusCode,
-						"latencyMs", latencyMs,
-					)
+					statusCode := resp.StatusCode
+					if statusCode >= 400 && !req.Silent {
+						log.Warnw("요청 실패",
+							"url", url,
+							"statusCode", statusCode,
+							"latencyMs", latencyMs,
+						)
+					}
+					result.StatusMap[resp.StatusCode]++
 				}
-				result.StatusMap[resp.StatusCode]++
 
 				// latency 통계 누적
 				if latencyMs > result.MaxLatencyMs {
 					result.MaxLatencyMs = latencyMs
-					logger.Infow("새로운 최대 응답시간 기록",
+					log.Infow("새로운 최대 응답시간 기록",
 						"url", url,
 						"latencyMs", latencyMs,
 					)
 				}
 				if latencyMs > 500 {
 					result.SlowCountOver500++
-					logger.Warnw("느린 응답",
+					log.Warnw("느린 응답",
 						"url", url,
 						"latencyMs", latencyMs,
 					)
 				}
 				mu.Unlock()
+
+				// 로깅 조건부 실행
+				if !req.Silent {
+					log.Infow("요청 결과", "status", resp.StatusCode, "latency", latencyMs)
+				}
 			}()
 		}
 	}
 
 	// 모든 goroutine이 끝날 때까지 기다림
-	logger.Info("모든 요청 완료 대기 중...")
+	log.Info("모든 요청 완료 대기 중...")
 	wg.Wait()
 
 	// 평균 응답 시간 계산
@@ -281,7 +290,7 @@ loop:
 	}
 
 	// 테스트 결과 요약 로깅
-	logger.Infow("테스트 완료",
+	log.Infow("테스트 완료",
 		"총요청", result.TotalRequests,
 		"성공", result.SuccessCount,
 		"실패", result.FailCount,

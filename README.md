@@ -10,3 +10,7 @@ node api-extractor.js https://example.com
 zap 사용
 go get -u go.uber.org/zap
 
+ai 입력
+curl -X POST http://localhost:8080/advanced-auto-test \
+   -H "Content-Type: application/json" \
+   -d '{"url": "https://kakaotech.my"}'

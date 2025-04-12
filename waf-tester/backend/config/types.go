@@ -9,7 +9,8 @@ type TestRequest struct {
 	Headers  map[string][]string `json:"headers,omitempty"`  // 사용할 HTTP 헤더 세트 (랜덤 선택용)
 	PathList []string            `json:"pathList,omitempty"` // 다양한 요청 경로 리스트
 	Body     string              `json:"body"`               // 요청 본문 (POST 요청에만 사용)
-	Timeout   int                 `json:"timeout,omitempty"`  // 요청별 타임아웃(초)
+	Timeout  int                 `json:"timeout,omitempty"`  // 요청별 타임아웃(초)
+	Silent   bool                `json:"silent,omitempty"`   // true면 요청별 로깅 비활성화
 }
 
 // TestResult는 트래픽 실행 후 응답 상태를 요약한 결과 구조체(백이 프론트한테 보냄)

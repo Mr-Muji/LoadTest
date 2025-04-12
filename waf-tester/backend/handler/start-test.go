@@ -2,84 +2,91 @@ package handler
 
 import (
 	"encoding/json"
-	"log"
-	"net/http"
 	"fmt"
-	
+	"net/http"
 
+	"github.com/Mr-Muji/LoadTest/logger"
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
-	"github.com/Mr-Muji/LoadTest/waf-tester/backend/tester"
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/gpt"
+	"github.com/Mr-Muji/LoadTest/waf-tester/backend/tester"
 )
 
-// StartTestHandler는 /start-test 라우터에 대응되는 HTTP 핸들러다.
-// 프론트엔드나 curl에서 설정을 JSON으로 받아서 부하 테스트를 실행한다.
+// log 변수 선언
+var log = logger.Logger
+
+// StartAdvancedAutoTestHandler는 URL만 입력받아 전체 과정을 자동화하는 핸들러
+// 변경된 주석
+// func StartAdvancedAutoTestHandler(w http.ResponseWriter, r *http.Request) {
+
+// POST 방식만 허용
 func StartTestHandler(w http.ResponseWriter, r *http.Request) {
-	// 요청은 반드시 POST 방식이어야 함
 	if r.Method != http.MethodPost {
 		http.Error(w, "허용되지 않은 메서드", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 요청 본문(JSON)을 구조체로 파싱
-	var req config.TestRequest
+	// URL만 포함된 단순 요청 구조체
+	var req struct {
+		URL string `json:"url"`
+	}
+
+	// 요청 파싱
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Errorw("잘못된 요청 형식", "error", err)
 		http.Error(w, "잘못된 요청 형식", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("테스트 시작: Target=%s | RPS=%d | Duration=%d초\n", req.Target, req.RPS, req.Duration)
-
-	// 트래픽 테스트 실행
-	result, err := tester.RunLoadTest(req)
-	if err != nil {
-		http.Error(w, "테스트 실행 중 오류 발생", http.StatusInternalServerError)
-		log.Printf("❌ RunLoadTest 에러: %v\n", err)
+	// URL 검증
+	if req.URL == "" {
+		log.Errorw("URL이 필요합니다")
+		http.Error(w, "URL이 필요합니다", http.StatusBadRequest)
 		return
 	}
 
-	// 결과를 JSON으로 응답
+	// 1. 기본 테스트 실행하여 경로 추출
+	autoTest, err := gpt.RunFullTest(req.URL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("테스트 실행 중 오류: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 2. 웹사이트 분석 - 통합된 함수 사용
+	analysisResult, err := gpt.AnalyzeWebsite(req.URL, autoTest.ExtractedPaths)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("웹사이트 분석 중 오류: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 3. 첫 번째 권장 테스트 실행 (1차 테스트)
+	var firstTestResult interface{}
+	if len(analysisResult.RecommendedTests) > 0 {
+		testReq := config.TestRequest{
+			Target:   req.URL,
+			Method:   analysisResult.RecommendedTests[0].Method,
+			RPS:      analysisResult.RecommendedTests[0].RPS,
+			Duration: analysisResult.RecommendedTests[0].Duration,
+			PathList: analysisResult.RecommendedTests[0].Paths,
+			Silent:   true,
+		}
+
+		firstTestResult, _ = tester.RunLoadTest(testReq)
+	}
+
+	// 4. 결과 반환
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("❌ 결과 응답 실패: %v\n", err)
+
+	result := map[string]interface{}{
+		"url":             req.URL,
+		"analysis":        analysisResult.Analysis,
+		"extractedPaths":  autoTest.ExtractedPaths,
+		"recommendations": analysisResult.RecommendedTests,
 	}
-}
 
-// StartAutoTestHandler는 URL만 입력받아 전체 과정을 자동화하는 핸들러
-func StartAutoTestHandler(w http.ResponseWriter, r *http.Request) {
-    // POST 방식만 허용
-    if r.Method != http.MethodPost {
-        http.Error(w, "허용되지 않은 메서드", http.StatusMethodNotAllowed)
-        return
-    }
+	if firstTestResult != nil {
+		result["firstTestResult"] = firstTestResult
+	}
 
-    // URL만 포함된 단순 요청 구조체
-    var req struct {
-        URL string `json:"url"`
-    }
-
-    // 요청 파싱
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "잘못된 요청 형식", http.StatusBadRequest)
-        return
-    }
-
-    // URL 검증
-    if req.URL == "" {
-        http.Error(w, "URL이 필요합니다", http.StatusBadRequest)
-        return
-    }
-
-    // 자동 테스트 실행
-    result, err := gpt.RunFullTest(req.URL)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("테스트 실행 중 오류: %v", err), http.StatusInternalServerError)
-        return
-    }
-
-    // 결과 반환
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(result)
 }

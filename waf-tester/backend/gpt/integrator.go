@@ -6,7 +6,20 @@ import (
 	"strings"
 
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
+	"github.com/Mr-Muji/LoadTest/waf-tester/backend/tester"
+	"go.uber.org/zap"
 )
+
+// zap 로거 변수 선언
+var log *zap.SugaredLogger
+
+func init() {
+	// 기본 zap 로거 생성 (만약 다른 곳에서 초기화되지 않았다면)
+	if log == nil {
+		logger, _ := zap.NewProduction()
+		log = logger.Sugar()
+	}
+}
 
 // AutomatedTest는 URL 기반으로 전체 테스트 과정을 자동화하는 구조체
 type AutomatedTest struct {
@@ -88,14 +101,22 @@ func (t *AutomatedTest) extractPaths() error {
 
 // analyzePathsWithGPT는 GPT를 사용하여 추출된 경로들의 중요도를 분석
 func (t *AutomatedTest) analyzePathsWithGPT() error {
-	// GPT 분석 호출
-	result, err := RecommendHotEndpoints(t.ExtractedPaths)
+	// 로그 추가: GPT 분석 시작
+	log.Info("Starting GPT analysis", zap.Any("extractedPaths", t.ExtractedPaths))
+
+	// GPT 분석 호출 (통합된 AnalyzeWebsite 함수 사용)
+	result, err := AnalyzeWebsite(t.TargetURL, t.ExtractedPaths)
 	if err != nil {
+		// 로그 추가: 오류 발생 시
+		log.Error("GPT analysis error", zap.Error(err))
 		return fmt.Errorf("GPT 분석 오류: %v", err)
 	}
 
 	// 추천된 경로들 저장
 	t.TopPaths = result.RecommendedPaths
+
+	// 로그 추가: GPT 분석 완료
+	log.Info("GPT analysis completed", zap.Any("recommendedPaths", t.TopPaths))
 	return nil
 }
 
@@ -104,10 +125,11 @@ func (t *AutomatedTest) runLoadTest() error {
 	// 테스트 요청 구성
 	testReq := config.TestRequest{
 		Target:   t.TargetURL,
-		Method:   "GET", // 기본 메소드, GPT 추천으로 덮어쓸 수 있음
-		RPS:      10,    // 기본값, GPT 추천으로 조정 가능
-		Duration: 10,    // 10초 테스트
+		Method:   "GET",
+		RPS:      10,
+		Duration: 10,
 		PathList: make([]string, 0),
+		Silent:   true,
 	}
 
 	// GPT 추천 경로만 테스트 대상으로 설정
@@ -127,4 +149,68 @@ func (t *AutomatedTest) runLoadTest() error {
 	// 여기서는 구현 생략 (이미 waf-tester에 구현되어 있음)
 
 	return nil
+}
+
+// RunRecommendedTest는 특정 테스트 권장사항에 따라 테스트를 실행
+func RunRecommendedTest(targetURL string, recommendation TestRecommendation) (interface{}, error) {
+	// 테스트 요청 구성
+	testReq := config.TestRequest{
+		Target:   targetURL,
+		Method:   recommendation.Method,
+		RPS:      recommendation.RPS,
+		Duration: recommendation.Duration,
+		PathList: recommendation.Paths,
+		Silent:   true, // 로깅 비활성화 옵션 추가
+	}
+
+	// 추천 테스트 실행 로그
+	log.Infow("Running recommended test",
+		"targetURL", targetURL,
+		"recommendation", recommendation,
+	)
+
+	// 테스트 유형에 따라 다른 테스트 실행
+	var result interface{}
+	var err error
+	switch recommendation.Type {
+	case "load":
+		result, err = tester.RunLoadTest(testReq)
+	case "security":
+		result, err = simulateSecurityTest(testReq)
+	case "functional":
+		result, err = simulateFunctionalTest(testReq)
+	default:
+		result, err = tester.RunLoadTest(testReq)
+	}
+
+	// 테스트 실행 완료 로그
+	log.Infow("Test execution completed",
+		"result", result,
+	)
+
+	return result, err
+}
+
+// simulateSecurityTest는 보안 테스트를 시뮬레이션 (실제 구현 필요)
+func simulateSecurityTest(req config.TestRequest) (map[string]interface{}, error) {
+	// 보안 테스트 시뮬레이션
+	return map[string]interface{}{
+		"testType":    "security",
+		"description": "보안 테스트 시뮬레이션 (향후 실제 보안 테스트 구현 예정)",
+		"paths":       req.PathList,
+		"method":      req.Method,
+		"findings":    []string{"구현 예정입니다"},
+	}, nil
+}
+
+// simulateFunctionalTest는 기능 테스트를 시뮬레이션 (실제 구현 필요)
+func simulateFunctionalTest(req config.TestRequest) (map[string]interface{}, error) {
+	// 기능 테스트 시뮬레이션
+	return map[string]interface{}{
+		"testType":    "functional",
+		"description": "기능 테스트 시뮬레이션 (향후 실제 기능 테스트 구현 예정)",
+		"paths":       req.PathList,
+		"method":      req.Method,
+		"results":     []string{"구현 예정입니다"},
+	}, nil
 }
