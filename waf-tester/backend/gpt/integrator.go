@@ -7,19 +7,7 @@ import (
 
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/tester"
-	"go.uber.org/zap"
 )
-
-// zap 로거 변수 선언
-var log *zap.SugaredLogger
-
-func init() {
-	// 기본 zap 로거 생성 (만약 다른 곳에서 초기화되지 않았다면)
-	if log == nil {
-		logger, _ := zap.NewProduction()
-		log = logger.Sugar()
-	}
-}
 
 // AutomatedTest는 URL 기반으로 전체 테스트 과정을 자동화하는 구조체
 type AutomatedTest struct {
@@ -101,22 +89,15 @@ func (t *AutomatedTest) extractPaths() error {
 
 // analyzePathsWithGPT는 GPT를 사용하여 추출된 경로들의 중요도를 분석
 func (t *AutomatedTest) analyzePathsWithGPT() error {
-	// 로그 추가: GPT 분석 시작
-	log.Info("Starting GPT analysis", zap.Any("extractedPaths", t.ExtractedPaths))
-
 	// GPT 분석 호출 (통합된 AnalyzeWebsite 함수 사용)
 	result, err := AnalyzeWebsite(t.TargetURL, t.ExtractedPaths)
 	if err != nil {
-		// 로그 추가: 오류 발생 시
-		log.Error("GPT analysis error", zap.Error(err))
 		return fmt.Errorf("GPT 분석 오류: %v", err)
 	}
 
 	// 추천된 경로들 저장
 	t.TopPaths = result.RecommendedPaths
 
-	// 로그 추가: GPT 분석 완료
-	log.Info("GPT analysis completed", zap.Any("recommendedPaths", t.TopPaths))
 	return nil
 }
 
@@ -163,12 +144,6 @@ func RunRecommendedTest(targetURL string, recommendation TestRecommendation) (in
 		Silent:   true, // 로깅 비활성화 옵션 추가
 	}
 
-	// 추천 테스트 실행 로그
-	log.Infow("Running recommended test",
-		"targetURL", targetURL,
-		"recommendation", recommendation,
-	)
-
 	// 테스트 유형에 따라 다른 테스트 실행
 	var result interface{}
 	var err error
@@ -182,11 +157,6 @@ func RunRecommendedTest(targetURL string, recommendation TestRecommendation) (in
 	default:
 		result, err = tester.RunLoadTest(testReq)
 	}
-
-	// 테스트 실행 완료 로그
-	log.Infow("Test execution completed",
-		"result", result,
-	)
 
 	return result, err
 }

@@ -9,11 +9,7 @@ import (
 	"time"
 
 	"github.com/sashabaranov/go-openai"
-	"go.uber.org/zap"
 )
-
-// log 변수 선언
-var log = *zap.SugaredLogger
 
 // PathRecommendation은 GPT가 추천하는 경로 정보를 담는 구조체
 type PathRecommendation struct {
@@ -44,30 +40,19 @@ type WebsiteAnalysisResult struct {
 
 // AnalyzeWebsite는 URL과 경로 목록을 분석하여 모든 정보를 한 번에 반환하는 함수
 func AnalyzeWebsite(url string, extractedPaths []string) (*WebsiteAnalysisResult, error) {
-	// 함수 시작 로깅
-	log.Infow("AnalyzeWebsite 함수 시작",
-		"url", url,
-		"extractedPathsCount", len(extractedPaths))
-
 	// OpenAI API 키 확인
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		log.Error("OPENAI_API_KEY 환경변수 없음")
 		return nil, fmt.Errorf("OPENAI_API_KEY 환경변수가 설정되지 않았습니다")
 	}
-	log.Debug("OPENAI_API_KEY 환경변수 확인 완료")
 
 	// OpenAI 클라이언트 생성
 	client := openai.NewClient(apiKey)
 	ctx := context.Background()
-	log.Debug("OpenAI 클라이언트 생성 완료")
 
 	// 경로 정보를 문자열로 변환
 	pathsInfo := strings.Join(extractedPaths, "\n- ")
 	pathsInfo = "- " + pathsInfo
-	log.Debug("경로 정보 문자열 변환 완료",
-		"경로 수", len(extractedPaths),
-		"첫 번째 경로", extractedPaths[0])
 
 	// GPT에 전달할 프롬프트 작성 (영어로)
 	prompt := fmt.Sprintf(`Website URL: %s
@@ -115,20 +100,8 @@ You are a web application analysis expert. Analyze the website and API endpoints
 
 Specify path priorities from 1 (highest) to 5 (lowest), and provide at least 3 different test types.`, url, pathsInfo)
 
-	log.Infow("GPT 분석 요청 준비 완료",
-		"url", url,
-		"prompt길이", len(prompt))
-
-	// 프롬프트의 처음과 끝 부분 로깅 (전체 프롬프트가 너무 길 수 있음)
-	promptPreview := prompt
-	if len(promptPreview) > 500 {
-		promptPreview = promptPreview[:250] + "..." + promptPreview[len(promptPreview)-250:]
-	}
-	log.Debug("프롬프트 내용(일부)", "prompt", promptPreview)
-
 	// API 요청 시작 시간 기록
 	requestStart := time.Now()
-	log.Infow("ChatGPT API 요청 시작", "시작시간", requestStart)
 
 	// ChatGPT API 호출
 	response, err := client.CreateChatCompletion(
@@ -149,93 +122,32 @@ Specify path priorities from 1 (highest) to 5 (lowest), and provide at least 3 d
 		},
 	)
 
-	// API 응답 시간 및 결과 로깅
-	responseTime := time.Since(requestStart)
-	log.Infow("ChatGPT API 응답 수신",
-		"소요시간", responseTime,
-		"성공여부", err == nil)
-
 	if err != nil {
-		log.Errorw("GPT API 호출 오류",
-			"error", err,
-			"경과시간", responseTime)
 		return nil, fmt.Errorf("OpenAI API 호출 중 오류: %v", err)
 	}
 
-	// 응답 내용 로깅
+	// API 요청 시간 계산 및 로그 출력
+	requestDuration := time.Since(requestStart)
+	fmt.Printf("OpenAI API 요청 소요 시간: %v\n", requestDuration)
+
+	// 응답 내용
 	content := response.Choices[0].Message.Content
-	contentPreview := content
-	if len(contentPreview) > 500 {
-		contentPreview = contentPreview[:250] + "..." + contentPreview[len(contentPreview)-250:]
-	}
-	log.Infow("GPT 응답 내용(일부)", "content", contentPreview)
-	log.Debug("GPT 모델", "model", response.Model)
-	log.Debug("GPT 토큰 사용량",
-		"프롬프트 토큰", response.Usage.PromptTokens,
-		"완성 토큰", response.Usage.CompletionTokens,
-		"총 토큰", response.Usage.TotalTokens)
 
 	// 응답에서 JSON 부분 추출
 	jsonStart := strings.Index(content, "{")
 	jsonEnd := strings.LastIndex(content, "}")
 
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
-		log.Errorw("JSON 형식 추출 실패",
-			"content", content,
-			"jsonStart", jsonStart,
-			"jsonEnd", jsonEnd)
 		return nil, fmt.Errorf("응답에서 유효한 JSON을 찾을 수 없습니다: %s", content)
 	}
 
 	jsonStr := content[jsonStart : jsonEnd+1]
-	log.Debug("JSON 추출 완료", "jsonLength", len(jsonStr))
 
-	// JSON 파싱 시작
-	log.Infow("JSON 파싱 시작")
+	// JSON 파싱
 	var result WebsiteAnalysisResult
 	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		log.Errorw("JSON 파싱 오류",
-			"error", err,
-			"jsonStr", jsonStr)
 		return nil, fmt.Errorf("JSON 파싱 중 오류: %v, JSON: %s", err, jsonStr)
 	}
 
-	// 파싱 결과 로깅
-	log.Infow("JSON 파싱 성공",
-		"recommendedPathsCount", len(result.RecommendedPaths),
-		"recommendedTestsCount", len(result.RecommendedTests))
-
-	// 분석 결과 미리보기
-	analysisPreview := result.Analysis
-	if len(analysisPreview) > 100 {
-		analysisPreview = analysisPreview[:97] + "..."
-	}
-	log.Infow("분석 결과(일부)", "analysis", analysisPreview)
-
-	// 추천 경로 로깅
-	for i, path := range result.RecommendedPaths {
-		if i < 3 { // 처음 3개만 로깅
-			log.Infow("추천 경로",
-				"index", i,
-				"path", path.Path,
-				"method", path.Method,
-				"priority", path.Priority,
-				"rps", path.RPS)
-		}
-	}
-
-	// 추천 테스트 로깅
-	for i, test := range result.RecommendedTests {
-		if i < 3 { // 처음 3개만 로깅
-			log.Infow("추천 테스트",
-				"index", i,
-				"type", test.Type,
-				"method", test.Method,
-				"rps", test.RPS,
-				"duration", test.Duration)
-		}
-	}
-
-	log.Infow("AnalyzeWebsite 함수 완료", "총소요시간", time.Since(requestStart))
 	return &result, nil
 }
