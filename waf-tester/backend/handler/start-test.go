@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"fmt"
+	
 
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/config"
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/tester"
+	"github.com/Mr-Muji/LoadTest/waf-tester/backend/gpt"
 )
 
 // StartTestHandler는 /start-test 라우터에 대응되는 HTTP 핸들러다.
@@ -41,4 +44,42 @@ func StartTestHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		log.Printf("❌ 결과 응답 실패: %v\n", err)
 	}
+}
+
+// StartAutoTestHandler는 URL만 입력받아 전체 과정을 자동화하는 핸들러
+func StartAutoTestHandler(w http.ResponseWriter, r *http.Request) {
+    // POST 방식만 허용
+    if r.Method != http.MethodPost {
+        http.Error(w, "허용되지 않은 메서드", http.StatusMethodNotAllowed)
+        return
+    }
+
+    // URL만 포함된 단순 요청 구조체
+    var req struct {
+        URL string `json:"url"`
+    }
+
+    // 요청 파싱
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "잘못된 요청 형식", http.StatusBadRequest)
+        return
+    }
+
+    // URL 검증
+    if req.URL == "" {
+        http.Error(w, "URL이 필요합니다", http.StatusBadRequest)
+        return
+    }
+
+    // 자동 테스트 실행
+    result, err := gpt.RunFullTest(req.URL)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("테스트 실행 중 오류: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // 결과 반환
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(result)
 }
