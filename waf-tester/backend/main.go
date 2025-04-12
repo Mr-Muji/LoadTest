@@ -4,11 +4,12 @@ package main
 
 import (
 	// Go에서는 필요한 기능을 패키지로 가져와 사용합니다
-	"encoding/json" // JSON 문자열을 Go 구조체로 변환하는 데 필요
+	//"encoding/json" // JSON 문자열을 Go 구조체로 변환하는 데 필요
 	"fmt"           // 콘솔에 문자열 출력할 때 사용 (printf, println 등)
 	"log"           // 로깅 기능 제공 (에러나 정보를 기록할 때 사용)
 	"net/http"      // HTTP 서버/클라이언트 기능 제공 (웹 서버 만들 때 필요)
 
+	"github.com/Mr-Muji/LoadTest/waf-tester/backend/handler"
 )
 
 // TestRequest - 클라이언트로부터 받을 테스트 요청 정보를 담는 구조체
@@ -23,34 +24,34 @@ type TestRequest struct {
 // startTestHandler - /start-test 엔드포인트에 대한 HTTP 요청을 처리하는 핸들러 함수
 // w: HTTP 응답을 작성하기 위한 객체
 // r: 클라이언트로부터 받은 HTTP 요청 정보
-func startTestHandler(w http.ResponseWriter, r *http.Request) {
-	// 클라이언트 요청을 저장할 변수 선언
-	var req TestRequest
+// func startTestHandler(w http.ResponseWriter, r *http.Request) {
+// 	// 클라이언트 요청을 저장할 변수 선언
+// 	var req TestRequest
 
-	// HTTP 요청 본문(body)을 JSON으로 파싱하여 TestRequest 구조체에 저장
-	// json.NewDecoder: JSON 데이터를 읽기 위한 디코더 생성
-	// r.Body: HTTP 요청의 본문
-	// Decode(&req): JSON 데이터를 req 변수에 저장
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// JSON 파싱에 실패하면 400 Bad Request 오류 응답 반환
-		http.Error(w, "잘못된 요청", http.StatusBadRequest)
-		return
-	}
+// 	// HTTP 요청 본문(body)을 JSON으로 파싱하여 TestRequest 구조체에 저장
+// 	// json.NewDecoder: JSON 데이터를 읽기 위한 디코더 생성
+// 	// r.Body: HTTP 요청의 본문
+// 	// Decode(&req): JSON 데이터를 req 변수에 저장
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		// JSON 파싱에 실패하면 400 Bad Request 오류 응답 반환
+// 		http.Error(w, "잘못된 요청", http.StatusBadRequest)
+// 		return
+// 	}
 
-	// 요청 정보를 로그로 출력 (서버 콘솔에 표시)
-	log.Printf("[REQUEST] target=%s rps=%d duration=%d\n", req.Target, req.RPS, req.Duration)
+// 	// 요청 정보를 로그로 출력 (서버 콘솔에 표시)
+// 	log.Printf("[REQUEST] target=%s rps=%d duration=%d\n", req.Target, req.RPS, req.Duration)
 
-	// 클라이언트에 200 OK 상태 코드 전송
-	w.WriteHeader(http.StatusOK)
+// 	// 클라이언트에 200 OK 상태 코드 전송
+// 	w.WriteHeader(http.StatusOK)
 
-	// 응답 본문으로 "OK" 문자열 전송
-	w.Write([]byte("OK"))
-}
+// 	// 응답 본문으로 "OK" 문자열 전송
+// 	w.Write([]byte("OK"))
+// }
 
 // main - 프로그램의 진입점이 되는 함수
 func main() {
 	// /start-test 경로로 들어오는 HTTP 요청을 startTestHandler 함수로 처리하도록 등록
-	http.HandleFunc("/start-test", startTestHandler)
+	http.HandleFunc("/start-test", handler.StartTestHandler)
 
 	// 서버가 시작되었음을 콘솔에 출력
 	fmt.Println("🚀 서버 실행 중 : http://localhost:8080")
