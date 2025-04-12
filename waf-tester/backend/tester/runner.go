@@ -43,11 +43,10 @@ loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 �
 				defer wg.Done() // 함수 종료 시 WaitGroup 카운터 감소
 
 				//경로 + 헤더 랜덤 선택
-				path := GetRandomPath(req.PathList)        // 설정된 경로 목록에서 랜덤 선택
-				headers := GetRandomHeaderSet(req.Headers) // 헤더 랜덤 선택 수정
+				selectedPath := GetRandomPath(req.PathList)
+				url := strings.TrimRight(req.Target, "/") + "/" + strings.TrimLeft(selectedPath, "/")
 
-				// 요청 보낼 전체 URL 구성
-				url := req.Target + path // 기본 URL과 경로를 합쳐 전체 URL 생성
+				headers := GetRandomHeaderSet(req.Headers) // 헤더 랜덤 선택 수정
 
 				// 요청 본문 설정
 				var bodyReader io.Reader = nil // 변수명은 유지, 타입만 변경
