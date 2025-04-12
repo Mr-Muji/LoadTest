@@ -9,8 +9,6 @@ import (
 	"log"           // 로깅 기능 제공 (에러나 정보를 기록할 때 사용)
 	"net/http"      // HTTP 서버/클라이언트 기능 제공 (웹 서버 만들 때 필요)
 
-	"github.com/Mr-Muji/LoadTest/waf-tester/backend/handler"
-	
 )
 
 // TestRequest - 클라이언트로부터 받을 테스트 요청 정보를 담는 구조체
