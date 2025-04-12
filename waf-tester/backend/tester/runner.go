@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http" // 요청 보낼 때 사용
+	"os"
 	"strings"
 	"sync" // 병렬 처리할 때 결과를 안전하게 저장하려고 mutex 사용
 	"time" // 타이머 제어(Duration, Ticker 등)
@@ -70,10 +71,38 @@ loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 �
 				startTime := time.Now()
 
 				// 요청 보내기
-				client := &http.Client{}        // HTTP 클라이언트 생성
-				resp, err := client.Do(httpReq) // 요청 전송하고 응답 받기
-				if err != nil {                 // 요청 실패 시
-					return // 고루틴 종료
+				timeoutDuration := 10 * time.Second // 기본값 10초
+				if req.Timeout > 0 {
+					timeoutDuration = time.Duration(req.Timeout) * time.Second
+				}
+
+				client := &http.Client{
+					Timeout: timeoutDuration, // 개별 요청 타임아웃
+					Transport: &http.Transport{
+						MaxIdleConns:        100,
+						MaxIdleConnsPerHost: 100,
+						IdleConnTimeout:     30 * time.Second,
+					},
+				}
+
+				// 타임아웃 발생 시 처리
+				resp, err := client.Do(httpReq)
+				if err != nil {
+					mu.Lock()
+					result.TotalRequests++
+					result.FailCount++
+
+					// 타임아웃 오류 감지
+					if os.IsTimeout(err) || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline exceeded") {
+						result.TimeoutCount++          // 새로운 필드 필요
+						if result.StatusMap[-1] == 0 { // -1을 타임아웃 상태 코드로 사용
+							result.StatusMap[-1] = 1
+						} else {
+							result.StatusMap[-1]++
+						}
+					}
+					mu.Unlock()
+					return
 				}
 				defer resp.Body.Close() // 함수 종료 시 응답 본문 닫기 (리소스 정리)
 
