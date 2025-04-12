@@ -24,10 +24,21 @@ type TestRequest struct {
 }
 
 func init() {
-	// .env 파일 로드
-	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env 파일을 찾을 수 없습니다")
+	envFiles := []string{
+		".env",                  // 현재 디렉토리
+		"../../.env",            // 프로젝트 루트
+		"../../../.env",         // 더 상위 디렉토리
 	}
+	
+	for _, file := range envFiles {
+		err := godotenv.Load(file)
+		if err == nil {
+			log.Println("환경 변수 로드 성공:", file)
+			return
+		}
+	}
+	
+	log.Println("Warning: .env 파일을 찾을 수 없습니다")
 }
 
 // main - 프로그램의 진입점이 되는 함수
