@@ -52,7 +52,7 @@ func RunFullTest(targetURL string) (*AutomatedTest, error) {
 // extractPaths는 Node.js 스크래퍼를 호출하여 API 경로를 추출하는 메소드
 func (t *AutomatedTest) extractPaths() error {
 	// Node.js 스크래퍼 실행 명령 구성
-	cmd := exec.Command("node", "scrapper/api-extractor.js", t.TargetURL)
+	cmd := exec.Command("node", "../../scrapper/api-extractor.js", t.TargetURL)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("스크래퍼 실행 오류: %v, 출력: %s", err, string(output))

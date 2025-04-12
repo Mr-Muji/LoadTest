@@ -3,6 +3,7 @@ package tester
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http" // 요청 보낼 때 사용
 	"strings"
 	"sync" // 병렬 처리할 때 결과를 안전하게 저장하려고 mutex 사용
@@ -49,14 +50,12 @@ loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 �
 				url := req.Target + path // 기본 URL과 경로를 합쳐 전체 URL 생성
 
 				// 요청 본문 설정
-				var bodyReader *bytes.Buffer
+				var bodyReader io.Reader = nil // 변수명은 유지, 타입만 변경
 				if strings.ToUpper(req.Method) == "POST" && req.Body != "" {
-					bodyReader = bytes.NewBuffer([]byte(req.Body)) // POST일 경우 body 포함
-				} else {
-					bodyReader = nil // GET, or POST with no body
+					bodyReader = bytes.NewBuffer([]byte(req.Body)) // 기존 로직 유지
 				}
 
-				httpReq, err := http.NewRequest(req.Method, url, bodyReader) // bodyReader를 사용
+				httpReq, err := http.NewRequest(req.Method, url, bodyReader) // 변수명 유지
 				if err != nil {                                              // 요청 객체 생성 실패 시
 					fmt.Println("요청 생성 실패:", err) // 오류 출력
 					return                        // 고루틴 종료
@@ -83,8 +82,8 @@ loop: // 'loop'는 레이블(label)로, Go에서 특정 반복문에 이름을 �
 				latencyMs := float64(latency.Milliseconds())
 
 				// 응답 코드 저장
-				mu.Lock()                   // 뮤텍스 잠금 (동시 접근 방지)
-				result.TotalRequests++      // 총 요청 수 증가
+				mu.Lock()              // 뮤텍스 잠금 (동시 접근 방지)
+				result.TotalRequests++ // 총 요청 수 증가
 				totalLatencySum += latencyMs
 				// 응답 코드 처리
 				if resp.StatusCode == 200 { // 성공(200) 응답이면
