@@ -5,13 +5,13 @@ package main
 import (
 	// Go에서는 필요한 기능을 패키지로 가져와 사용합니다
 	//"encoding/json" // JSON 문자열을 Go 구조체로 변환하는 데 필요
-	"fmt"           // 콘솔에 문자열 출력할 때 사용 (printf, println 등)
-	"log"           // 로깅 기능 제공 (에러나 정보를 기록할 때 사용)
-	"net/http"      // HTTP 서버/클라이언트 기능 제공 (웹 서버 만들 때 필요)
+	"fmt"      // 콘솔에 문자열 출력할 때 사용 (printf, println 등)
+	"log"      // 로깅 기능 제공 (에러나 정보를 기록할 때 사용)
+	"net/http" // HTTP 서버/클라이언트 기능 제공 (웹 서버 만들 때 필요)
 
+	_ "github.com/Mr-Muji/LoadTest/waf-tester/backend/gpt"
 	"github.com/Mr-Muji/LoadTest/waf-tester/backend/handler"
-    "github.com/joho/godotenv"
-    "github.com/Mr-Muji/LoadTest/waf-tester/backend/gpt"
+	"github.com/joho/godotenv"
 )
 
 // TestRequest - 클라이언트로부터 받을 테스트 요청 정보를 담는 구조체
@@ -24,18 +24,18 @@ type TestRequest struct {
 }
 
 func init() {
-    // .env 파일 로드
-    if err := godotenv.Load(); err != nil {
-        log.Println("Warning: .env 파일을 찾을 수 없습니다")
-    }
+	// .env 파일 로드
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: .env 파일을 찾을 수 없습니다")
+	}
 }
 
 // main - 프로그램의 진입점이 되는 함수
 func main() {
 	// /start-test 경로로 들어오는 HTTP 요청을 startTestHandler 함수로 처리하도록 등록
 	http.HandleFunc("/start-test", handler.StartTestHandler)
-    // 새로운 자동화 핸들러 추가
-    http.HandleFunc("/auto-test", handler.StartAutoTestHandler)
+	// 새로운 자동화 핸들러 추가
+	http.HandleFunc("/auto-test", handler.StartAutoTestHandler)
 	// 서버가 시작되었음을 콘솔에 출력
 	fmt.Println("🚀 서버 실행 중 : http://localhost:8080")
 
